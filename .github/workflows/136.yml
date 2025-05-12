@@ -15,7 +15,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        choco install cmake ninja zip -y
+        choco install cmake ninja zip zlib -y  # 安装 ZLIB
 
     - name: Configure project (64-bit)
       run: |
