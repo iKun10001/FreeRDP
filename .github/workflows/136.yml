@@ -30,8 +30,8 @@ jobs:
 
     - name: Install OpenSSL (prebuilt)
       run: |
-        Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL_Light-3_2_0.exe -OutFile openssl.exe
-        Start-Process .\openssl.exe -ArgumentList '/silent', '/verysilent', '/sp-', '/norestart' -Wait
+        Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL_Light-3_5_0.msi -OutFile openssl.msi
+        Start-Process msiexec.exe -ArgumentList '/i', 'openssl.msi', '/quiet', '/norestart' -Wait
 
     - name: Download and extract zlib
       run: |
