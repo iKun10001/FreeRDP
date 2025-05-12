@@ -1,0 +1,68 @@
+name: Build FreeRDP for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        choco install cmake ninja zip -y
+
+    - name: Configure project (64-bit)
+      run: |
+        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DWITH_PROXY=ON -DWITH_OPENSSL=ON -DWITH_SWSCALE=ON
+
+    - name: Build project
+      run: |
+        cmake --build build
+
+    - name: Prepare output folder
+      run: |
+        mkdir output
+
+    - name: Copy main executable and DLLs
+      run: |
+        copy build\client\Windows\*.exe output\136.exe
+        for %%f in (build\**\*.dll) do (
+          copy "%%f" output\ >nul 2>&1
+        )
+
+    - name: Create ZIP package
+      run: |
+        powershell Compress-Archive -Path output\* -DestinationPath output\freerdp_136_full.zip
+
+    - name: Generate version tag
+      id: version
+      run: |
+        $ts = Get-Date -Format "yyyyMMdd-HHmmss"
+        echo "tag=freerdp-build-$ts" >> $env:GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: FreeRDP Build ${{ steps.version.outputs.tag }}
+        body: |
+          自动发布的 FreeRDP 构建包（含 SOCKS5 / OpenSSL）。
+          - 主程序：`136.exe`
+          - 平台：Windows 64 位
+          - 时间戳版本号：`${{ steps.version.outputs.tag }}`
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload ZIP to Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        files: output/freerdp_136_full.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
