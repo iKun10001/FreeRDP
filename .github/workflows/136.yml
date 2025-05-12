@@ -1,4 +1,4 @@
-name: Build FreeRDP (No FFmpeg)
+name: Build FreeRDP with FFmpeg
 
 on:
   push:
@@ -12,6 +12,11 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
+
+    - name: Clean build cache
+      run: |
+        if (Test-Path build) { Remove-Item -Recurse -Force build }
+        if (Test-Path output) { Remove-Item -Recurse -Force output }
 
     - name: Install CMake
       run: |
@@ -35,16 +40,26 @@ jobs:
         curl -L -o zlib123-dll.zip "https://sourceforge.net/projects/libpng/files/zlib/1.2.3/zlib123-dll.zip/download"
         Expand-Archive -Path zlib123-dll.zip -DestinationPath "$env:ProgramFiles\zlib"
 
-    - name: Configure FreeRDP (no FFmpeg)
+    - name: Download and extract FFmpeg
       run: |
-        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DWITH_PROXY=ON -DWITH_OPENSSL=ON -DWITH_SWSCALE=OFF `
+        Invoke-WebRequest -Uri https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.7z -OutFile ffmpeg.7z
+        7z x ffmpeg.7z -o"$env:ProgramFiles\ffmpeg" -y
+
+    - name: Configure FreeRDP with FFmpeg
+      run: |
+        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release `
+          -DWITH_PROXY=ON `
+          -DWITH_OPENSSL=ON `
+          -DWITH_SWSCALE=ON `
           -DZLIB_LIBRARY="$env:ProgramFiles\zlib\zlib1.dll" `
-          -DZLIB_INCLUDE_DIR="$env:ProgramFiles\zlib"
+          -DZLIB_INCLUDE_DIR="$env:ProgramFiles\zlib" `
+          -DFFMPEG_INCLUDE_DIR="$env:ProgramFiles\ffmpeg\ffmpeg-*-full_build\include" `
+          -DFFMPEG_LIBRARIES="$env:ProgramFiles\ffmpeg\ffmpeg-*-full_build\lib"
 
     - name: Build FreeRDP
       run: cmake --build build --config Release
 
-    - name: Rename and prepare output
+    - name: Prepare output
       run: |
         mkdir output
         Copy-Item build/client/Windows/Release/wfreerdp.exe output/136.exe -Force
@@ -53,11 +68,20 @@ jobs:
     - name: Compress output
       run: Compress-Archive -Path output/* -DestinationPath output/freerdp_136_full.zip
 
-    - name: Generate tag
+    - name: Generate version tag
       id: version
       run: |
         $ts = Get-Date -Format "yyyyMMdd-HHmmss"
         echo "tag=freerdp-${ts}" >> $env:GITHUB_OUTPUT
+        echo "timestamp=$ts" >> $env:GITHUB_OUTPUT
+
+    - name: Delete old releases (older than 7 days)
+      uses: dev-drprasad/delete-older-releases@v0.3.3
+      with:
+        keep_latest: 1
+        delete_tags: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Release
       uses: softprops/action-gh-release@v1
@@ -65,11 +89,18 @@ jobs:
         tag_name: ${{ steps.version.outputs.tag }}
         name: Build ${{ steps.version.outputs.tag }}
         body: |
-          FreeRDP 构建版本（不含 FFmpeg）
-          - 主程序：136.exe
-          - 平台：Windows 64位
-          - 不含 SWSCALE
-          - 附带 DLL
+          🎯 **FreeRDP Windows 构建版本**
+          📅 时间：${{ steps.version.outputs.timestamp }}
+          🔧 启用组件：
+          - ✅ WITH_PROXY
+          - ✅ WITH_OPENSSL
+          - ✅ WITH_SWSCALE (FFmpeg 支持)
+          - ✅ 静态链接 Zlib
+
+          📁 输出文件：
+          - 136.exe 主程序
+          - 所需 DLL 自动打包
+          - 打包压缩文件 freerdp_136_full.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
