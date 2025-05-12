@@ -13,24 +13,47 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Install dependencies
+    - name: Reconfigure chocolatey sources
       run: |
-        choco install cmake ninja zip zlib openssl -y  # 安装必要的组件
+        # 确保正确配置 Chocolatey 源
+        choco source list
+        choco source remove -n=chocolatey
+        choco source add -n=chocolatey -s=https://community.chocolatey.org/api/v2/
+
+    - name: Install dependencies using winget
+      run: |
+        # 使用 winget 安装所需的依赖项
+        winget install -e --id Zlib.Zlib
+        winget install -e --id OpenSSL.OpenSSL
+        winget install -e --id CMake.CMake
+        winget install -e --id Ninja.Ninja
+
+    - name: Check if dependencies are installed
+      run: |
+        # 检查安装的依赖项，确保它们安装成功
+        where cmake
+        where ninja
+        where zlib
+        where openssl
 
     - name: Configure project (64-bit)
       run: |
+        # 配置 CMake 项目
         cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DWITH_PROXY=ON -DWITH_OPENSSL=ON -DWITH_SWSCALE=ON
 
     - name: Build project
       run: |
+        # 编译项目
         cmake --build build
 
     - name: Prepare output folder
       run: |
+        # 创建输出文件夹
         mkdir output
 
     - name: Copy main executable and DLLs
       run: |
+        # 复制构建的主程序和 DLL 文件
         copy build\client\Windows\*.exe output\136.exe
         for %%f in (build\**\*.dll) do (
           copy "%%f" output\ >nul 2>&1
@@ -38,11 +61,13 @@ jobs:
 
     - name: Create ZIP package
       run: |
+        # 创建压缩包
         powershell Compress-Archive -Path output\* -DestinationPath output\freerdp_136_full.zip
 
     - name: Generate version tag
       id: version
       run: |
+        # 生成版本标签
         $ts = Get-Date -Format "yyyyMMdd-HHmmss"
         echo "tag=freerdp-build-$ts" >> $env:GITHUB_OUTPUT
 
