@@ -10,79 +10,68 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
+    - name: Checkout source code
       uses: actions/checkout@v3
 
-    - name: Install Dependencies Manually
+    - name: Set up PATH for tools
       run: |
-        # 手动安装 zlib
-        Invoke-WebRequest -Uri https://zlib.net/zlib123-dll.zip -OutFile zlib.zip
-        Expand-Archive -Path zlib.zip -DestinationPath $env:ProgramFiles\zlib
+        echo "$env:ProgramFiles\CMake\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        echo "$env:ProgramFiles\ninja"     | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-        # 手动安装 OpenSSL
-        Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL-1_1_1m.exe -OutFile openssl-installer.exe
-        Start-Process -Wait -FilePath openssl-installer.exe -ArgumentList '/quiet'
-        
-        # 手动安装 CMake
-        Invoke-WebRequest -Uri https://cmake.org/files/v3.20/cmake-3.20.1-win64-x64.msi -OutFile cmake-installer.msi
-        Start-Process -Wait -FilePath msiexec.exe -ArgumentList '/i', 'cmake-installer.msi', '/quiet'
-
-        # 手动安装 Ninja
-        Invoke-WebRequest -Uri https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-win.zip -OutFile ninja.zip
-        Expand-Archive -Path ninja.zip -DestinationPath $env:ProgramFiles\ninja
-
-    - name: Check if dependencies are installed
+    - name: Install Ninja build system
       run: |
-        # 检查安装的依赖项，确保它们安装成功
-        where cmake
-        where ninja
-        where openssl
+        Invoke-WebRequest -Uri https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-win.zip -OutFile ninja.zip
+        Expand-Archive ninja.zip -DestinationPath "$env:ProgramFiles\ninja"
 
-    - name: Configure project (64-bit)
+    - name: Install CMake manually
       run: |
-        # 配置 CMake 项目
-        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DWITH_PROXY=ON -DWITH_OPENSSL=ON -DWITH_SWSCALE=ON
+        Invoke-WebRequest -Uri https://github.com/Kitware/CMake/releases/download/v3.26.4/cmake-3.26.4-windows-x86_64.msi -OutFile cmake.msi
+        Start-Process msiexec.exe -ArgumentList '/i', 'cmake.msi', '/quiet', '/norestart' -Wait
 
-    - name: Build project
+    - name: Install OpenSSL (prebuilt)
       run: |
-        # 编译项目
-        cmake --build build
+        Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL_Light-3_2_0.exe -OutFile openssl.exe
+        Start-Process .\openssl.exe -ArgumentList '/silent', '/verysilent', '/sp-', '/norestart' -Wait
 
-    - name: Prepare output folder
+    - name: Download and extract zlib
       run: |
-        # 创建输出文件夹
+        curl -L -o zlib123-dll.zip "https://sourceforge.net/projects/libpng/files/zlib/1.2.3/zlib123-dll.zip/download"
+        Expand-Archive -Path zlib123-dll.zip -DestinationPath "$env:ProgramFiles\zlib"
+
+    - name: Configure FreeRDP
+      run: |
+        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DWITH_PROXY=ON -DWITH_OPENSSL=ON -DWITH_SWSCALE=ON `
+          -DZLIB_LIBRARY="$env:ProgramFiles\zlib\zlib1.dll" `
+          -DZLIB_INCLUDE_DIR="$env:ProgramFiles\zlib"
+
+    - name: Build FreeRDP
+      run: cmake --build build --config Release
+
+    - name: Rename and copy executable
+      run: |
         mkdir output
+        Copy-Item build/client/Windows/Release/wfreerdp.exe output/136.exe -Force
+        Copy-Item build/**/*.dll output/ -Recurse -Force
 
-    - name: Copy main executable and DLLs
-      run: |
-        # 复制构建的主程序和 DLL 文件
-        copy build\client\Windows\*.exe output\136.exe
-        for %%f in (build\**\*.dll) do (
-          copy "%%f" output\ >nul 2>&1
-        )
-
-    - name: Create ZIP package
-      run: |
-        # 创建压缩包
-        powershell Compress-Archive -Path output\* -DestinationPath output\freerdp_136_full.zip
+    - name: Create zip archive
+      run: Compress-Archive -Path output/* -DestinationPath output/freerdp_136_full.zip
 
     - name: Generate version tag
       id: version
       run: |
-        # 生成版本标签
         $ts = Get-Date -Format "yyyyMMdd-HHmmss"
-        echo "tag=freerdp-build-$ts" >> $env:GITHUB_OUTPUT
+        echo "tag=freerdp-${ts}" >> $env:GITHUB_OUTPUT
 
-    - name: Create GitHub Release
+    - name: Release build
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.version.outputs.tag }}
-        name: FreeRDP Build ${{ steps.version.outputs.tag }}
+        name: Build ${{ steps.version.outputs.tag }}
         body: |
-          自动发布的 FreeRDP 构建包（含 SOCKS5 / OpenSSL）。
-          - 主程序：`136.exe`
-          - 平台：Windows 64 位
-          - 时间戳版本号：`${{ steps.version.outputs.tag }}`
+          自动构建版本
+          - 主程序: 136.exe
+          - 平台: Windows 64 位
+          - 包含依赖 DLL
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
