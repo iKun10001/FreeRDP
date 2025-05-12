@@ -13,35 +13,29 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Install winget if not available
+    - name: Install Dependencies Manually
       run: |
-        if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-          # 如果 winget 不可用，尝试安装它
-          Invoke-WebRequest -Uri https://aka.ms/install-winget -OutFile winget-installer.msix
-          Add-AppxPackage .\winget-installer.msix
-        }
+        # 手动安装 zlib
+        Invoke-WebRequest -Uri https://zlib.net/zlib123-dll.zip -OutFile zlib.zip
+        Expand-Archive -Path zlib.zip -DestinationPath $env:ProgramFiles\zlib
 
-    - name: Reconfigure chocolatey sources
-      run: |
-        # 确保正确配置 Chocolatey 源
-        choco source list
-        choco source remove -n=chocolatey
-        choco source add -n=chocolatey -s=https://community.chocolatey.org/api/v2/
+        # 手动安装 OpenSSL
+        Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL-1_1_1m.exe -OutFile openssl-installer.exe
+        Start-Process -Wait -FilePath openssl-installer.exe -ArgumentList '/quiet'
+        
+        # 手动安装 CMake
+        Invoke-WebRequest -Uri https://cmake.org/files/v3.20/cmake-3.20.1-win64-x64.msi -OutFile cmake-installer.msi
+        Start-Process -Wait -FilePath msiexec.exe -ArgumentList '/i', 'cmake-installer.msi', '/quiet'
 
-    - name: Install dependencies using winget
-      run: |
-        # 使用 winget 安装所需的依赖项
-        winget install -e --id Zlib.Zlib
-        winget install -e --id OpenSSL.OpenSSL
-        winget install -e --id CMake.CMake
-        winget install -e --id Ninja.Ninja
+        # 手动安装 Ninja
+        Invoke-WebRequest -Uri https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-win.zip -OutFile ninja.zip
+        Expand-Archive -Path ninja.zip -DestinationPath $env:ProgramFiles\ninja
 
     - name: Check if dependencies are installed
       run: |
         # 检查安装的依赖项，确保它们安装成功
         where cmake
         where ninja
-        where zlib
         where openssl
 
     - name: Configure project (64-bit)
