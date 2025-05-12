@@ -1,34 +1,31 @@
-name: Build FreeRDP for Windows
+name: Build FreeRDP (No FFmpeg)
 
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout source code
+    - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Set up PATH for tools
-      run: |
-        echo "$env:ProgramFiles\CMake\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        echo "$env:ProgramFiles\ninja"     | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-    - name: Install Ninja build system
-      run: |
-        Invoke-WebRequest -Uri https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-win.zip -OutFile ninja.zip
-        Expand-Archive ninja.zip -DestinationPath "$env:ProgramFiles\ninja"
-
-    - name: Install CMake manually
+    - name: Install CMake
       run: |
         Invoke-WebRequest -Uri https://github.com/Kitware/CMake/releases/download/v3.26.4/cmake-3.26.4-windows-x86_64.msi -OutFile cmake.msi
         Start-Process msiexec.exe -ArgumentList '/i', 'cmake.msi', '/quiet', '/norestart' -Wait
+        echo "$env:ProgramFiles\CMake\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-    - name: Install OpenSSL (prebuilt)
+    - name: Install Ninja
+      run: |
+        Invoke-WebRequest -Uri https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-win.zip -OutFile ninja.zip
+        Expand-Archive ninja.zip -DestinationPath "$env:ProgramFiles\ninja"
+        echo "$env:ProgramFiles\ninja" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+    - name: Install OpenSSL
       run: |
         Invoke-WebRequest -Uri https://slproweb.com/download/Win64OpenSSL_Light-3_5_0.msi -OutFile openssl.msi
         Start-Process msiexec.exe -ArgumentList '/i', 'openssl.msi', '/quiet', '/norestart' -Wait
@@ -38,40 +35,41 @@ jobs:
         curl -L -o zlib123-dll.zip "https://sourceforge.net/projects/libpng/files/zlib/1.2.3/zlib123-dll.zip/download"
         Expand-Archive -Path zlib123-dll.zip -DestinationPath "$env:ProgramFiles\zlib"
 
-    - name: Configure FreeRDP
+    - name: Configure FreeRDP (no FFmpeg)
       run: |
-        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DWITH_PROXY=ON -DWITH_OPENSSL=ON -DWITH_SWSCALE=ON `
+        cmake -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DWITH_PROXY=ON -DWITH_OPENSSL=ON -DWITH_SWSCALE=OFF `
           -DZLIB_LIBRARY="$env:ProgramFiles\zlib\zlib1.dll" `
           -DZLIB_INCLUDE_DIR="$env:ProgramFiles\zlib"
 
     - name: Build FreeRDP
       run: cmake --build build --config Release
 
-    - name: Rename and copy executable
+    - name: Rename and prepare output
       run: |
         mkdir output
         Copy-Item build/client/Windows/Release/wfreerdp.exe output/136.exe -Force
-        Copy-Item build/**/*.dll output/ -Recurse -Force
+        Get-ChildItem -Recurse build -Include *.dll | Copy-Item -Destination output -Force
 
-    - name: Create zip archive
+    - name: Compress output
       run: Compress-Archive -Path output/* -DestinationPath output/freerdp_136_full.zip
 
-    - name: Generate version tag
+    - name: Generate tag
       id: version
       run: |
         $ts = Get-Date -Format "yyyyMMdd-HHmmss"
         echo "tag=freerdp-${ts}" >> $env:GITHUB_OUTPUT
 
-    - name: Release build
+    - name: Release
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.version.outputs.tag }}
         name: Build ${{ steps.version.outputs.tag }}
         body: |
-          自动构建版本
-          - 主程序: 136.exe
-          - 平台: Windows 64 位
-          - 包含依赖 DLL
+          FreeRDP 构建版本（不含 FFmpeg）
+          - 主程序：136.exe
+          - 平台：Windows 64位
+          - 不含 SWSCALE
+          - 附带 DLL
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
